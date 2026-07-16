@@ -4,6 +4,8 @@ import { useState, useCallback } from "react";
 import Link from "next/link";
 import { TestTimer } from "@/components/simulator/TestTimer";
 import { ReadingSimulator, type ReadingQuestion } from "@/components/simulator/ReadingSimulator";
+import { gradeReceptiveBatch } from "@/lib/ielts/grade-receptive";
+import type { ReceptiveAnswerKey } from "@/lib/ielts/types";
 import { useSimulatorStore } from "@/store/simulator-store";
 
 const SAMPLE_PASSAGE = `The History of Urban Green Spaces
@@ -62,13 +64,16 @@ const SAMPLE_QUESTIONS: ReadingQuestion[] = [
   },
 ];
 
-const CORRECT_ANSWERS: Record<string, string> = {
-  q1: "False",
-  q2: "True",
-  q3: "False",
-  q4: "Not Given",
-  q5: "5",
-  q6: "Twentieth-century design innovations",
+const ANSWER_KEYS: Record<string, ReceptiveAnswerKey> = {
+  q1: { primary: "False" },
+  q2: { primary: "True" },
+  q3: { primary: "False" },
+  q4: { primary: "Not Given", acceptedAlternates: ["not given"] },
+  q5: { primary: "5", wordLimit: 1 },
+  q6: {
+    primary: "Twentieth-century design innovations",
+    acceptedAlternates: ["twentieth-century design innovations"],
+  },
 };
 
 export default function ReadingPracticePage() {
@@ -82,12 +87,7 @@ export default function ReadingPracticePage() {
   }, []);
 
   const handleSubmit = useCallback(() => {
-    let correct = 0;
-    for (const [id, answer] of Object.entries(CORRECT_ANSWERS)) {
-      if (answers[id]?.trim().toLowerCase() === answer.toLowerCase()) {
-        correct++;
-      }
-    }
+    const { score: correct } = gradeReceptiveBatch(answers, ANSWER_KEYS);
     setScore(correct);
     setSubmitted(true);
     setLocked(true);
@@ -132,7 +132,7 @@ export default function ReadingPracticePage() {
             <p className="font-semibold text-ielts-navy">
               Score: {score}/{SAMPLE_QUESTIONS.length}
             </p>
-            {answers.q1 === "True" && CORRECT_ANSWERS.q1 === "False" && (
+            {answers.q1?.toLowerCase() === "true" && (
               <p className="text-sm text-amber-600">
                 Tip: You confused False with Not Given on Q1. False means the text directly
                 contradicts the statement.

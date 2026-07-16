@@ -1,32 +1,105 @@
-# IELTS Advantage Platform
+# IELTS Preparation Platform — Project Contract
 
-## Project Overview
+This file is the single source of truth for engineering standards and
+pedagogical rules. It is written for AI coding agents (Claude Code, Cursor)
+and human contributors. Every rule here overrides anything an imported
+spec, blog post, or research report says.
 
-This project is an elite web-based IELTS preparation platform built using Next.js (App Router), TypeScript, Tailwind CSS, and PostgreSQL (via Prisma). The application functions as a highly accurate Computer-Delivered IELTS (CD-IELTS) simulator and an AI-powered grading platform based strictly on the "IELTS Advantage" methodology developed by Chris Pell.
+## Stack
 
-## Technical Architecture & Stack
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- PostgreSQL via Prisma
+- Anthropic API (`@anthropic-ai/sdk`) for writing/speaking evaluation
+- Zustand for simulator state
 
-- **Frontend:** Next.js (React), Tailwind CSS, Zustand (for complex simulator state management including timers and split-screens).
-- **Backend:** Next.js API Routes, PostgreSQL, Prisma ORM.
-- **AI Integration:** Anthropic Claude API for evaluating user essays and speaking transcripts via the official SDK.
+## Grading philosophy (most important section)
 
-## Pedagogical Logic (The "IELTS Advantage" Ruleset)
+1. **Descriptors score; scaffolds coach.** Band scores are assigned per
+   criterion (Task Response / Task Achievement, Coherence & Cohesion,
+   Lexical Resource, Grammatical Range & Accuracy) against the official
+   public IELTS band descriptors. Teaching scaffolds — the 4-paragraph
+   essay, PEEL, "overview not conclusion", the 5-heading speaking prep —
+   are surfaced as coaching notes and must NEVER automatically lower a
+   band. A well-executed 5-paragraph essay can be a Band 9.
+2. **Scores are ranges, not points.** A single LLM evaluation is noisy.
+   The UI must display the returned `overall.low`–`overall.high` range.
+   For high-stakes feedback, use the ensemble evaluator (3 runs, median).
+3. **Code counts; the model judges.** Word counts, paragraph counts,
+   sentence statistics, and repetition are computed deterministically in
+   `lib/ielts/analyze.ts` and passed into the prompt. Never ask the model
+   to count words or estimate vocabulary-level percentages — it will
+   confabulate the numbers.
+4. **Structured output only.** Every evaluation call uses a forced tool
+   schema (`tool_choice`), never free-text JSON parsing.
+5. **Vocabulary: clarity over complexity.** Reward precise, natural word
+   choice. Flag misused high-register or memorised phrases and always
+   suggest a clearer alternative — but only penalise Lexical Resource
+   when the misuse genuinely shows imprecision, per the descriptors.
 
-When building backend evaluation prompts or frontend guidance components, you MUST adhere to these non-negotiable rules:
+## Task rule sets (three, not one)
 
-1. **Writing Task 2 Structure:** Essays require exactly 4 paragraphs (Introduction, Body 1, Body 2, Conclusion). Body paragraphs must follow the PEEL framework (Point, Explain, Example, Link).
-2. **Writing Task 1 Academic:** Reports require 4 paragraphs (Introduction, Overview, Body 1, Body 2). There must be NO CONCLUSION and NO OPINIONS. The overview summarizes main trends without specific data.
-3. **Writing Task 1 General:** Letters require 5 paragraphs (Purpose, Bullet 1, Bullet 2, Bullet 3, Sign-off). Tone is dictated by the prompt (informal if to a "friend", formal otherwise).
-4. **Vocabulary Evaluation (Birthday Cake Strategy):** The AI evaluator must reward simple, accurate language (A1-B2) forming 90% of the essay. It must heavily penalize forced, inaccurate complex words (C1/C2). Clarity beats complexity.
-5. **Speaking Part 2 Strategy:** The UI must provide a 1-minute prep timer with a digital scratchpad locked to 5 required headings: Introduction, Past, Description, Opinion, Future.
-6. **CD-IELTS Simulator Constraints:**
-   - Reading modules MUST have a responsive split-screen layout (passage left, questions right).
-   - Writing modules MUST have a live word counter but MUST disable all browser spell-checking (`spellcheck="false"`).
-   - Timers must hide seconds during the final minute of the test.
+### Writing Task 2 (Academic & GT) — criterion label: Task Response
 
-## Coding Standards
+- Minimum 250 words; under-length limits Task Response per descriptors.
+- Coaching scaffold: intro 40–50 words (paraphrase prompt + clear
+  position), two body paragraphs of roughly 80–100 words each (PEEL, one
+  central idea, realistic example), conclusion 40–50 words, no new ideas.
 
-- Use TypeScript strict mode throughout.
-- Prefer server components for data fetching; client components only when interactivity is required.
-- Keep evaluation prompts in dedicated files under `src/lib/prompts/`.
-- All band score feedback must map to the four official IELTS criteria.
+### Writing Task 1 Academic — criterion label: Task Achievement
+
+- Minimum 150 words. Factual report only: personal opinion or
+  speculation is off-task and does affect Task Achievement.
+- An overview of the main trends is required for Band 6 and above.
+- Coaching scaffold: Introduction, Overview, Body 1, Body 2. Prefer an
+  overview to a conclusion; keep specific figures out of the overview.
+
+### Writing Task 1 General Training — criterion label: Task Achievement
+
+- Minimum 150 words. All three bullet points must be covered.
+- Tone is three-way — informal / semi-formal / formal — inferred from
+  the recipient AND the situation. A letter to a landlord you know is
+  semi-formal. Do NOT implement a binary "friend = informal" switch.
+- Coaching scaffold: purpose statement, one paragraph per bullet point,
+  sign-off matched to register.
+
+## Receptive skills grading (Reading & Listening)
+
+- Deterministic code, never an LLM.
+- **Case-insensitive matching. IELTS does not penalise capitalisation.**
+- Spelling is strict; misspelled answers are wrong.
+- Every answer key stores accepted alternates
+  (`colour|color`, `20|twenty`, `USA|the USA`).
+- Enforce word limits exactly ("no more than three words" means three).
+- Listening audio plays once. Enforce this server-side with a one-time
+  play token, not just in the UI.
+
+## Simulator engineering rules
+
+- **Server-authoritative timing.** Persist `startedAt` + `durationSec`;
+  the client only renders the countdown and reconciles on focus/reload.
+  Browsers throttle background-tab timers — never trust the client clock.
+- Autosave writing submissions every 5–10 seconds. A refresh or crash
+  must restore the session exactly.
+- Writing text areas: `spellCheck={false}`, `autoCorrect="off"`,
+  `autoCapitalize="off"`, with a live word counter.
+- Timer UI hides seconds during the final minute (static "1 minute
+  remaining"), then locks all inputs at zero.
+- Reading: split-screen layout — passage left with independent scroll,
+  questions right; highlights and notes persist for the session.
+
+## Content rules
+
+- Never include Cambridge past-paper material or any other copyrighted
+  test content. All passages, recordings, and questions must be original
+  or licensed, stored via authoring models with difficulty metadata and
+  per-question accepted-alternate answer keys.
+
+## Provided modules (do not regress)
+
+- `lib/ielts/analyze.ts` — deterministic text statistics
+- `lib/ielts/evaluator.ts` — prompt builder + Anthropic call with forced
+  tool schema, per-criterion bands, coaching notes, ensemble helper
+- `app/api/evaluate-writing/route.ts` — POST endpoint
+
+Env: `ANTHROPIC_API_KEY` required server-side.
+Model: `claude-sonnet-4-6`.

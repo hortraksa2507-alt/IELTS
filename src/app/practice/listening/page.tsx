@@ -3,41 +3,29 @@
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { TestTimer } from "@/components/simulator/TestTimer";
+import { gradeReceptiveBatch } from "@/lib/ielts/grade-receptive";
+import type { ReceptiveAnswerKey } from "@/lib/ielts/types";
 import { useSimulatorStore } from "@/store/simulator-store";
 
 interface ListeningQuestion {
   id: string;
   question: string;
   wordLimit?: number;
-  correctAnswer: string;
 }
 
 const LISTENING_QUESTIONS: ListeningQuestion[] = [
-  {
-    id: "l1",
-    question: "What is the name of the museum?",
-    wordLimit: 2,
-    correctAnswer: "City Museum",
-  },
-  {
-    id: "l2",
-    question: "On which day is the museum closed?",
-    wordLimit: 1,
-    correctAnswer: "Monday",
-  },
-  {
-    id: "l3",
-    question: "What time does the guided tour start?",
-    wordLimit: 1,
-    correctAnswer: "2:30",
-  },
-  {
-    id: "l4",
-    question: "How much is the student ticket?",
-    wordLimit: 1,
-    correctAnswer: "£8",
-  },
+  { id: "l1", question: "What is the name of the museum?", wordLimit: 2 },
+  { id: "l2", question: "On which day is the museum closed?", wordLimit: 1 },
+  { id: "l3", question: "What time does the guided tour start?", wordLimit: 1 },
+  { id: "l4", question: "How much is the student ticket?", wordLimit: 1 },
 ];
+
+const LISTENING_KEYS: Record<string, ReceptiveAnswerKey> = {
+  l1: { primary: "City Museum", wordLimit: 2 },
+  l2: { primary: "Monday", acceptedAlternates: ["monday"], wordLimit: 1 },
+  l3: { primary: "2:30", acceptedAlternates: ["2:30pm", "14:30"], wordLimit: 1 },
+  l4: { primary: "£8", acceptedAlternates: ["8"], wordLimit: 1 },
+};
 
 const SAMPLE_TRANSCRIPT = `[Audio transcript for demonstration]
 Welcome to the City Museum. We are open every day except Monday, from 9 AM to 5 PM.
@@ -61,17 +49,10 @@ export default function ListeningPracticePage() {
   }, []);
 
   const handleSubmit = useCallback(() => {
+    const graded = gradeReceptiveBatch(answers, LISTENING_KEYS);
     const newResults: Record<string, boolean> = {};
-    for (const q of LISTENING_QUESTIONS) {
-      const userAnswer = answers[q.id]?.trim() ?? "";
-      const wordCount = userAnswer.split(/\s+/).filter(Boolean).length;
-
-      if (q.wordLimit && wordCount > q.wordLimit) {
-        newResults[q.id] = false;
-        continue;
-      }
-
-      newResults[q.id] = userAnswer.toLowerCase() === q.correctAnswer.toLowerCase();
+    for (const [id, result] of Object.entries(graded.results)) {
+      newResults[id] = result.correct;
     }
     setResults(newResults);
     setSubmitted(true);
@@ -154,7 +135,7 @@ export default function ListeningPracticePage() {
               />
               {submitted && !results[q.id] && (
                 <p className="text-xs text-red-600 mt-1">
-                  Correct: {q.correctAnswer}
+                  Correct: {LISTENING_KEYS[q.id].primary}
                 </p>
               )}
             </div>
