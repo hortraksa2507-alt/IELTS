@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TestType {
+  ACADEMIC
+  GENERAL_TRAINING
+}
+
+enum ModuleType {
+  READING
+  LISTENING
+  WRITING
+  SPEAKING
+}
+
+enum WritingTaskType {
+  TASK_1_ACADEMIC
+  TASK_1_GENERAL
+  TASK_2
+}
+
+enum SpeakingPart {
+  PART_1
+  PART_2
+  PART_3
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EVALUATED
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String?
+  currentBand     Float    @default(5.0)
+  targetBand      Float    @default(7.0)
+  testType        TestType @default(ACADEMIC)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submissions     Submission[]
+  diagnosticLogs  DiagnosticLog[]
+}
+
+model MockTest {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  testType    TestType
+  module      ModuleType
+  duration    Int        // seconds
+  isPublished Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  readingPassage  ReadingPassage?
+  writingPrompt   WritingPrompt?
+  listeningTest   ListeningTest?
+  speakingPrompts SpeakingPrompt[]
+  submissions     Submission[]
+}
+
+model ReadingPassage {
+  id          String   @id @default(cuid())
+  mockTestId  String   @unique
+  title       String
+  content     String   @db.Text
+  questions   Json     // Array of question objects
+  createdAt   DateTime @default(now())
+
+  mockTest    MockTest @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+}
+
+model WritingPrompt {
+  id          String          @id @default(cuid())
+  mockTestId  String          @unique
+  taskType    WritingTaskType
+  prompt      String          @db.Text
+  minWords    Int             @default(150)
+  maxWords    Int             @default(250)
+  imageUrl    String?
+  bulletPoints Json?          // For General Training letters
+  createdAt   DateTime        @default(now())
+
+  mockTest    MockTest @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+}
+
+model ListeningTest {
+  id          String   @id @default(cuid())
+  mockTestId  String   @unique
+  audioUrl    String
+  transcript  String?  @db.Text
+  questions   Json
+  createdAt   DateTime @default(now())
+
+  mockTest    MockTest @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+}
+
+model SpeakingPrompt {
+  id          String       @id @default(cuid())
+  mockTestId  String
+  part        SpeakingPart
+  question    String       @db.Text
+  cueCard     Json?        // Part 2 bullet points
+  followUps   Json?        // Part 3 follow-up questions
+  createdAt   DateTime     @default(now())
+
+  mockTest    MockTest @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+}
+
+model Submission {
+  id              String           @id @default(cuid())
+  userId          String
+  mockTestId      String
+  status          SubmissionStatus @default(IN_PROGRESS)
+  content         String?          @db.Text
+  audioUrl        String?
+  transcript      String?          @db.Text
+  answers         Json?            // For reading/listening
+  wordCount       Int              @default(0)
+  paragraphCounts Json?            // Per-paragraph word counts for writing
+  startedAt       DateTime         @default(now())
+  completedAt     DateTime?
+  timeRemaining   Int?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mockTest        MockTest         @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+  evaluation      AiEvaluation?
+
+  @@index([userId])
+  @@index([mockTestId])
+}
+
+model AiEvaluation {
+  id                  String   @id @default(cuid())
+  submissionId        String   @unique
+  estimatedBandScore  Float
+  taskAchievement     String   @db.Text
+  coherenceCohesion   String   @db.Text
+  lexicalResource     String   @db.Text
+  grammaticalRange    String   @db.Text
+  actionableFixes     Json     // Array of 3 actionable steps
+  rawResponse         Json?
+  createdAt           DateTime @default(now())
+
+  submission          Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model DiagnosticLog {
+  id          String   @id @default(cuid())
+  userId      String
+  category    String   // e.g., "T/F/NG confusion", "word limit exceeded"
+  details     Json
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+}
