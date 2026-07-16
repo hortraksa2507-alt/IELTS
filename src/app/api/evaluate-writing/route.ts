@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import {
-  evaluateWritingTask2,
-  evaluateWritingTask1Academic,
-  evaluateWritingTask1General,
-} from "@/lib/ai/evaluator";
+  evaluateWriting,
+  evaluateWritingEnsemble,
+  PROMPT_VERSION,
+  EVALUATOR_MODEL,
+} from "@/lib/ielts/evaluator";
+import type { WritingTaskType } from "@/lib/ielts/types";
 import { prisma } from "@/lib/prisma";
-import { countWords } from "@/store/simulator-store";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { essay, prompt, taskType, submissionId } = body as {
+    const { essay, prompt, taskType, submissionId, ensemble } = body as {
       essay: string;
       prompt: string;
-      taskType: "TASK_2" | "TASK_1_ACADEMIC" | "TASK_1_GENERAL";
+      taskType: WritingTaskType;
       submissionId?: string;
+      ensemble?: boolean;
     };
 
     if (!essay || !prompt || !taskType) {
@@ -24,6 +27,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (
+      taskType !== "TASK_2" &&
+      taskType !== "TASK_1_ACADEMIC" &&
+      taskType !== "TASK_1_GENERAL"
+    ) {
+      return NextResponse.json({ error: "Invalid taskType" }, { status: 400 });
+    }
+
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json(
         { error: "ANTHROPIC_API_KEY is not configured" },
@@ -31,32 +42,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let evaluation;
-    switch (taskType) {
-      case "TASK_2":
-        evaluation = await evaluateWritingTask2(essay, prompt);
-        break;
-      case "TASK_1_ACADEMIC":
-        evaluation = await evaluateWritingTask1Academic(essay, prompt);
-        break;
-      case "TASK_1_GENERAL":
-        evaluation = await evaluateWritingTask1General(essay, prompt);
-        break;
-      default:
-        return NextResponse.json({ error: "Invalid taskType" }, { status: 400 });
-    }
-
-    const bandScore =
-      typeof evaluation.estimatedBandScore === "string"
-        ? parseFloat(evaluation.estimatedBandScore)
-        : evaluation.estimatedBandScore;
+    const input = { essay, prompt, taskType };
+    const evaluation = ensemble
+      ? await evaluateWritingEnsemble(input)
+      : await evaluateWriting(input);
 
     if (submissionId) {
+      const overallMid =
+        (evaluation.overall.low + evaluation.overall.high) / 2;
+
+      const rawResponse = JSON.parse(JSON.stringify({
+        ...evaluation,
+        model: EVALUATOR_MODEL,
+        promptVersion: PROMPT_VERSION,
+      })) as Prisma.InputJsonValue;
+
       await prisma.submission.update({
         where: { id: submissionId },
         data: {
           content: essay,
-          wordCount: countWords(essay),
+          wordCount: evaluation.analysis.wordCount,
+          paragraphCounts: evaluation.analysis.paragraphWordCounts as unknown as Prisma.InputJsonValue,
           status: "EVALUATED",
           completedAt: new Date(),
         },
@@ -66,30 +72,27 @@ export async function POST(request: NextRequest) {
         where: { submissionId },
         create: {
           submissionId,
-          estimatedBandScore: bandScore,
-          taskAchievement: evaluation.taskResponse,
-          coherenceCohesion: evaluation.coherenceCohesion,
-          lexicalResource: evaluation.lexicalResource,
-          grammaticalRange: evaluation.grammaticalRange,
-          actionableFixes: evaluation.actionableFixes,
-          rawResponse: evaluation as object,
+          estimatedBandScore: overallMid,
+          taskAchievement: evaluation.taskCriterion.feedback,
+          coherenceCohesion: evaluation.coherenceCohesion.feedback,
+          lexicalResource: evaluation.lexicalResource.feedback,
+          grammaticalRange: evaluation.grammaticalRange.feedback,
+          actionableFixes: evaluation.topFixes,
+          rawResponse,
         },
         update: {
-          estimatedBandScore: bandScore,
-          taskAchievement: evaluation.taskResponse,
-          coherenceCohesion: evaluation.coherenceCohesion,
-          lexicalResource: evaluation.lexicalResource,
-          grammaticalRange: evaluation.grammaticalRange,
-          actionableFixes: evaluation.actionableFixes,
-          rawResponse: evaluation as object,
+          estimatedBandScore: overallMid,
+          taskAchievement: evaluation.taskCriterion.feedback,
+          coherenceCohesion: evaluation.coherenceCohesion.feedback,
+          lexicalResource: evaluation.lexicalResource.feedback,
+          grammaticalRange: evaluation.grammaticalRange.feedback,
+          actionableFixes: evaluation.topFixes,
+          rawResponse,
         },
       });
     }
 
-    return NextResponse.json({
-      ...evaluation,
-      estimatedBandScore: bandScore,
-    });
+    return NextResponse.json(evaluation);
   } catch (error) {
     console.error("Writing evaluation error:", error);
     return NextResponse.json(
